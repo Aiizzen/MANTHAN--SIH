@@ -15,6 +15,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Runtime detection uploads
+python/uploads/
+
 # OS-specific files
 .DS_Store
 Thumbs.db

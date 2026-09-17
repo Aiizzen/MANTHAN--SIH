@@ -1,175 +1,529 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { DETECTIONS, SURVEYS } from '@/data/mockData';
-import type { Detection, DetectionClass, DetectionStatus } from '@/data/mockData';
-import DetectionFilterBar from './DetectionFilterBar';
-import DetectionCardList from './DetectionCardList';
-import DetectionDrawer from './DetectionDrawer';
-import dynamic from 'next/dynamic';
-import { DetectionCardSkeleton } from '@/components/ui/SkeletonLoader';
-import { FileSearch } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Clock3,
+} from 'lucide-react';
 
-// Leaflet requires browser — dynamic import with ssr: false
-const DetectionMap = dynamic(() => import('./DetectionMap'), { ssr: false });
+type DetectionStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'false_positive';
 
-type SortOption = 'confidence_desc' | 'confidence_asc' | 'index_asc';
+interface Detection {
+  id: string;
+  surveyId: string;
+  index: number;
+  classification: string;
+  confidence: number;
+  lat: number;
+  lng: number;
+  depth: string;
+  estimatedLength: string;
+  estimatedWidth: string;
+  status: DetectionStatus;
+  note: string;
+  thumbnailColor?: string;
+  bboxTop?: string;
+  bboxLeft?: string;
+  bboxWidth?: string;
+  bboxHeight?: string;
+  bboxColor?: string;
+  detectedAt: string;
+}
+
+interface Survey {
+  id: string;
+  filename: string;
+  uploadDate: string;
+  areaCovered: string;
+  contactsDetected: number;
+  status: string;
+  processingTime: string;
+  vessel: string;
+  operator: string;
+}
+
+interface LiveReport {
+  survey: Survey;
+  detections: Detection[];
+}
 
 export default function DetectionResultsContent() {
-  const [loading, setLoading] = useState(true);
-  const [detections, setDetections] = useState<Detection[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [filterClass, setFilterClass] = useState<DetectionClass | 'All'>('All');
-  const [filterStatus, setFilterStatus] = useState<DetectionStatus | 'All'>('All');
-  const [sortOption, setSortOption] = useState<SortOption>('index_asc');
-  const [filterMinConf, setFilterMinConf] = useState(0);
+  const router = useRouter();
 
-  const survey = SURVEYS.find((s) => s.id === 'survey-001')!;
+  const [survey, setSurvey] = useState<Survey | null>(null);
+  const [detections, setDetections] = useState<Detection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [filter, setFilter] = useState<
+    'all' | 'pending' | 'confirmed' | 'false_positive'
+  >('all');
 
   useEffect(() => {
-    // Backend integration point: fetch detections for survey from API
-    const t = setTimeout(() => {
-      setDetections(DETECTIONS);
+    try {
+      const raw = localStorage.getItem(
+        'sonarshield_last_results'
+      );
+
+      console.log(
+        'SONARSHIELD RESULTS RAW:',
+        raw
+      );
+
+      if (!raw) {
+        setError(
+          'No uploaded survey result found. Please upload a survey first.'
+        );
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as LiveReport;
+
+      if (
+        !parsed ||
+        !parsed.survey ||
+        !parsed.survey.filename ||
+        !Array.isArray(parsed.detections)
+      ) {
+        throw new Error(
+          'Invalid detection result received.'
+        );
+      }
+
+      console.log(
+        'SONARSHIELD LIVE SURVEY:',
+        parsed.survey
+      );
+
+      console.log(
+        'SONARSHIELD LIVE DETECTIONS:',
+        parsed.detections
+      );
+
+      setSurvey(parsed.survey);
+      setDetections(parsed.detections);
+    } catch (err) {
+      console.error(
+        'SONARSHIELD RESULTS ERROR:',
+        err
+      );
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to load detection results.'
+      );
+    } finally {
       setLoading(false);
-    }, 900);
-    return () => clearTimeout(t);
+    }
   }, []);
 
-  const updateDetectionStatus = (id: string, status: DetectionStatus, note?: string) => {
-    setDetections((prev) =>
-      prev.map((d) =>
-        d.id === id ? { ...d, status, note: note !== undefined ? note : d.note } : d
-      )
+  const filteredDetections = useMemo(() => {
+    if (filter === 'all') {
+      return detections;
+    }
+
+    return detections.filter(
+      (detection) => detection.status === filter
     );
-  };
+  }, [detections, filter]);
 
-  const filtered = detections
-    .filter((d) => filterClass === 'All' || d.classification === filterClass)
-    .filter((d) => filterStatus === 'All' || d.status === filterStatus)
-    .filter((d) => d.confidence >= filterMinConf);
+  const pendingCount = detections.filter(
+    (detection) => detection.status === 'pending'
+  ).length;
 
-  const sorted = [...filtered].sort((a, b) => {
-    if (sortOption === 'confidence_desc') return b.confidence - a.confidence;
-    if (sortOption === 'confidence_asc') return a.confidence - b.confidence;
-    return a.index - b.index;
-  });
+  const confirmedCount = detections.filter(
+    (detection) => detection.status === 'confirmed'
+  ).length;
 
-  const selectedDetection = detections.find((d) => d.id === selectedId) ?? null;
+  const falsePositiveCount = detections.filter(
+    (detection) => detection.status === 'false_positive'
+  ).length;
 
-  const handleCardClick = (id: string) => {
-    setSelectedId(id);
-    setDrawerOpen(true);
-  };
+  if (loading) {
+    return (
+      <div className="px-6 lg:px-8 xl:px-10 py-8 max-w-screen-2xl mx-auto">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">
+              Loading detection results…
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  const handleDrawerClose = () => {
-    setDrawerOpen(false);
-    setTimeout(() => setSelectedId(null), 200);
-  };
+  if (error || !survey) {
+    return (
+      <div className="px-6 lg:px-8 xl:px-10 py-8 max-w-screen-2xl mx-auto">
+        <div className="flex items-center gap-3 mb-6">
+          <button
+            type="button"
+            onClick={() =>
+              router.push('/upload-new-survey')
+            }
+            className="p-2 rounded-lg hover:bg-muted transition-colors"
+          >
+            <ArrowLeft size={18} />
+          </button>
+
+          <div>
+            <h1 className="text-[24px] font-semibold text-foreground">
+              Detection Results
+            </h1>
+
+            <p className="text-[14px] text-muted-foreground mt-1">
+              No live survey loaded
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-8 text-center">
+          <AlertTriangle
+            size={32}
+            className="mx-auto mb-3 text-amber-600"
+          />
+
+          <p className="text-sm text-foreground font-medium">
+            {error ||
+              'No detection result is available.'}
+          </p>
+
+          <button
+            type="button"
+            onClick={() =>
+              router.push('/upload-new-survey')
+            }
+            className="mt-5 px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-semibold"
+          >
+            Upload a Survey
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Page Header */}
-      <div className="px-6 lg:px-8 py-5 border-b border-border bg-card flex-shrink-0">
-        <div className="flex items-start justify-between max-w-screen-2xl mx-auto">
+    <div className="px-6 lg:px-8 xl:px-10 py-8 max-w-screen-2xl mx-auto">
+
+      <div className="flex items-center gap-3 mb-6">
+        <button
+          type="button"
+          onClick={() =>
+            router.push('/upload-new-survey')
+          }
+          className="p-2 rounded-lg hover:bg-muted transition-colors"
+        >
+          <ArrowLeft size={18} />
+        </button>
+
+        <div className="min-w-0">
+          <h1 className="text-[24px] font-semibold text-foreground">
+            Detection Results
+          </h1>
+
+          <p className="text-[14px] text-muted-foreground mt-1 truncate">
+            {survey.filename}
+          </p>
+        </div>
+
+        <span className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-50 border border-green-200 text-green-700 text-[12px] font-medium whitespace-nowrap">
+          <CheckCircle2 size={14} />
+          Live Pipeline Result
+        </span>
+      </div>
+
+      <div className="bg-card border border-border rounded-xl p-5 mb-6">
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+
           <div>
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-[12px] text-muted-foreground font-mono">survey-001</span>
-              <span className="w-1 h-1 rounded-full bg-border" />
-              <span className="text-[12px] text-muted-foreground">{survey.vessel}</span>
-              <span className="w-1 h-1 rounded-full bg-border" />
-              <span className="text-[12px] text-muted-foreground">{survey.areaCovered}</span>
-            </div>
-            <h1 className="text-[20px] font-semibold text-foreground tracking-tight truncate max-w-2xl">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Survey File
+            </p>
+            <p className="text-[14px] font-semibold mt-1 break-all">
               {survey.filename}
-            </h1>
+            </p>
           </div>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="text-[12px] text-muted-foreground">
-              {detections.filter((d) => d.status === 'pending').length} pending ·{' '}
-              {detections.filter((d) => d.status === 'confirmed').length} confirmed ·{' '}
-              {detections.filter((d) => d.status === 'false_positive' || d.status === 'dismissed').length} dismissed
+
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Contacts
+            </p>
+            <p className="text-[18px] font-semibold mt-1">
+              {detections.length}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Area
+            </p>
+            <p className="text-[14px] font-semibold mt-1">
+              {survey.areaCovered || '—'}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Vessel
+            </p>
+            <p className="text-[14px] font-semibold mt-1">
+              {survey.vessel || '—'}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Operator
+            </p>
+            <p className="text-[14px] font-semibold mt-1">
+              {survey.operator || '—'}
+            </p>
+          </div>
+
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-2">
+            <AlertTriangle size={16} />
+            <span className="text-[12px]">
+              Total
             </span>
           </div>
-        </div>
-      </div>
-
-      {/* Filter Bar */}
-      <div className="px-6 lg:px-8 py-3 border-b border-border bg-card flex-shrink-0">
-        <div className="max-w-screen-2xl mx-auto">
-          <DetectionFilterBar
-            filterClass={filterClass}
-            filterStatus={filterStatus}
-            sortOption={sortOption}
-            filterMinConf={filterMinConf}
-            onFilterClass={setFilterClass}
-            onFilterStatus={setFilterStatus}
-            onSortOption={setSortOption}
-            onFilterMinConf={setFilterMinConf}
-            totalCount={detections.length}
-            filteredCount={sorted.length}
-          />
-        </div>
-      </div>
-
-      {/* Main Split Layout */}
-      <div className="flex flex-1 overflow-hidden max-w-screen-2xl mx-auto w-full px-6 lg:px-8 py-4 gap-4">
-        {/* Map — left panel */}
-        <div className="flex-1 min-w-0 rounded-xl overflow-hidden border border-border shadow-card bg-muted relative">
-          {loading ? (
-            <div className="w-full h-full flex items-center justify-center bg-muted">
-              <div className="text-center">
-                <div className="skeleton-pulse w-full h-full absolute inset-0 rounded-xl" />
-                <FileSearch size={32} className="text-muted-foreground opacity-30 relative z-10" />
-              </div>
-            </div>
-          ) : (
-            <DetectionMap
-              detections={sorted}
-              selectedId={selectedId}
-              hoveredId={hoveredId}
-              onPinClick={handleCardClick}
-            />
-          )}
+          <p className="text-2xl font-semibold">
+            {detections.length}
+          </p>
         </div>
 
-        {/* Detection Cards — right panel */}
-        <div className="w-[360px] xl:w-[400px] 2xl:w-[420px] flex-shrink-0 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-            {loading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <DetectionCardSkeleton key={`card-skeleton-${i}`} />
-              ))
-            ) : sorted.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full py-16 text-center">
-                <FileSearch size={36} className="text-muted-foreground opacity-40 mb-3" />
-                <p className="text-[15px] font-semibold text-foreground">No contacts match filters</p>
-                <p className="text-[13px] text-muted-foreground mt-1 max-w-xs">
-                  Adjust confidence threshold or classification filter to see results.
-                </p>
-              </div>
-            ) : (
-              <DetectionCardList
-                detections={sorted}
-                selectedId={selectedId}
-                hoveredId={hoveredId}
-                onCardClick={handleCardClick}
-                onCardHover={setHoveredId}
-              />
-            )}
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-2">
+            <Clock3 size={16} />
+            <span className="text-[12px]">
+              Pending
+            </span>
           </div>
+          <p className="text-2xl font-semibold">
+            {pendingCount}
+          </p>
         </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-2">
+            <CheckCircle2 size={16} />
+            <span className="text-[12px]">
+              Confirmed
+            </span>
+          </div>
+          <p className="text-2xl font-semibold">
+            {confirmedCount}
+          </p>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center gap-2 text-muted-foreground mb-2">
+            <XCircle size={16} />
+            <span className="text-[12px]">
+              False Positive
+            </span>
+          </div>
+          <p className="text-2xl font-semibold">
+            {falsePositiveCount}
+          </p>
+        </div>
+
       </div>
 
-      {/* Detail Drawer */}
-      {drawerOpen && selectedDetection && (
-        <DetectionDrawer
-          detection={selectedDetection}
-          onClose={handleDrawerClose}
-          onUpdateStatus={updateDetectionStatus}
-        />
-      )}
+      <div className="flex flex-wrap gap-2 mb-5">
+
+        <button
+          type="button"
+          onClick={() => setFilter('all')}
+          className={`px-4 py-2 rounded-lg text-[12px] font-medium border ${
+            filter === 'all'
+              ? 'bg-primary text-white border-primary'
+              : 'bg-card border-border text-muted-foreground hover:bg-muted'
+          }`}
+        >
+          All
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFilter('pending')}
+          className={`px-4 py-2 rounded-lg text-[12px] font-medium border ${
+            filter === 'pending'
+              ? 'bg-primary text-white border-primary'
+              : 'bg-card border-border text-muted-foreground hover:bg-muted'
+          }`}
+        >
+          Pending
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFilter('confirmed')}
+          className={`px-4 py-2 rounded-lg text-[12px] font-medium border ${
+            filter === 'confirmed'
+              ? 'bg-primary text-white border-primary'
+              : 'bg-card border-border text-muted-foreground hover:bg-muted'
+          }`}
+        >
+          Confirmed
+        </button>
+
+        <button
+          type="button"
+          onClick={() =>
+            setFilter('false_positive')
+          }
+          className={`px-4 py-2 rounded-lg text-[12px] font-medium border ${
+            filter === 'false_positive'
+              ? 'bg-primary text-white border-primary'
+              : 'bg-card border-border text-muted-foreground hover:bg-muted'
+          }`}
+        >
+          False Positive
+        </button>
+
+      </div>
+
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+
+        <div className="px-5 py-4 border-b border-border">
+          <h2 className="text-[15px] font-semibold">
+            Detected Contacts
+          </h2>
+
+          <p className="text-[12px] text-muted-foreground mt-1">
+            {filteredDetections.length} result
+            {filteredDetections.length === 1
+              ? ''
+              : 's'}
+          </p>
+        </div>
+
+        {filteredDetections.length === 0 ? (
+          <div className="py-16 text-center">
+            <AlertTriangle
+              size={28}
+              className="mx-auto mb-3 text-muted-foreground"
+            />
+
+            <p className="text-sm text-muted-foreground">
+              No detections match this filter.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+
+            {filteredDetections.map(
+              (detection) => (
+                <div
+                  key={detection.id}
+                  className="px-5 py-5 hover:bg-muted/40 transition-colors"
+                >
+
+                  <div className="flex items-start justify-between gap-4">
+
+                    <div className="min-w-0">
+
+                      <div className="flex items-center gap-3">
+
+                        <p className="text-[14px] font-semibold">
+                          {detection.classification}
+                        </p>
+
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-medium ${
+                            detection.status ===
+                            'confirmed'
+                              ? 'bg-green-50 text-green-700'
+                              : detection.status ===
+                                'false_positive'
+                              ? 'bg-red-50 text-red-700'
+                              : 'bg-amber-50 text-amber-700'
+                          }`}
+                        >
+                          {detection.status.replace(
+                            '_',
+                            ' '
+                          )}
+                        </span>
+
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-2 mt-3">
+
+                        <p className="text-[12px] text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            Confidence:
+                          </span>{' '}
+                          {detection.confidence}%
+                        </p>
+
+                        <p className="text-[12px] text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            Position:
+                          </span>{' '}
+                          {detection.lat.toFixed(6)},{' '}
+                          {detection.lng.toFixed(6)}
+                        </p>
+
+                        <p className="text-[12px] text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            Depth:
+                          </span>{' '}
+                          {detection.depth}
+                        </p>
+
+                        <p className="text-[12px] text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            Size:
+                          </span>{' '}
+                          {detection.estimatedLength}{' '}
+                          ×{' '}
+                          {detection.estimatedWidth}
+                        </p>
+
+                      </div>
+
+                      {detection.note && (
+                        <p className="text-[12px] text-muted-foreground mt-3">
+                          <span className="font-medium text-foreground">
+                            Note:
+                          </span>{' '}
+                          {detection.note}
+                        </p>
+                      )}
+
+                    </div>
+
+                    <div className="text-[11px] text-muted-foreground whitespace-nowrap">
+                      #{detection.index}
+                    </div>
+
+                  </div>
+
+                </div>
+              )
+            )}
+
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }

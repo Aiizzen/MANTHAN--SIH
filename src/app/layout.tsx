@@ -16,8 +16,9 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'SonarShield — Marine Debris Detection & Review',
-  description: 'SonarShield helps marine survey operators review AI-detected underwater contacts from side-scan sonar imagery — faster, safer, and fully auditable.',
+  title: 'MANTHAN — Marine Sonar Intelligence',
+  description:
+    'MANTHAN helps marine survey operators analyze side-scan sonar imagery and review detected underwater contacts — faster, safer, and fully auditable.',
   icons: {
     icon: [{ url: '/favicon.ico', type: 'image/x-icon' }],
   },
@@ -31,8 +32,18 @@ export default function RootLayout({
       <body className={dmSans.className}>
         {children}
 
-        <script type="module" async src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Fsonarshiel8774back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.20" />
-        <script type="module" defer src="https://static.rocket.new/rocket-shot.js?v=0.0.3" /></body>
+        <script
+          type="module"
+          async
+          src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Fsonarshiel8774back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.20"
+        />
+
+        <script
+          type="module"
+          defer
+          src="https://static.rocket.new/rocket-shot.js?v=0.0.3"
+        />
+      </body>
     </html>
   );
 }
