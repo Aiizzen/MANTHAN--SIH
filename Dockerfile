@@ -7,8 +7,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
-
+RUN npm install
 COPY requirements.txt ./
 RUN pip3 install --break-system-packages -r requirements.txt
 
